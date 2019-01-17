@@ -7,6 +7,7 @@
 #include <unistd.h>
 #include "helper.h"
 
+
 int main(int argc, char *argv[]) {
     int playerNumber;
 
@@ -21,22 +22,22 @@ int main(int argc, char *argv[]) {
 
 ///////////////////////////////////////////////////////////////////
 
-    int playerType;
-    int playersCount;
-    int typesCount = 'Z' - 'A' + 1;
-    int roomsCount;
-    int waitingForPropositionsAdding = 0;
-    int waitingAfterPropositionsAdding = 0;
-    int playersWithPropositions = playersCount;
-    int playerBusy[playersCount];
-    int propositionsForPlayer[playersCount];
-    int propositionsForTypes[typesCount];
-    int freePlayersOfType[typesCount];
-    int canPropose[playersCount];
-    Room *freeRooms[roomsCount];
-    int pendingGames;
-    int exitingPlayer;
-    int gamesOfExitingPlayer;
+    int playerType; // private
+    int playersCount; // public (read)
+    int typesCount = 'Z' - 'A' + 1; // public (read)
+    int roomsCount; // public (read)
+    int waitingForPropositionsAdding = 0; // public
+    int waitingAfterPropositionsAdding = 0; // public
+    int playersWithPropositions = playersCount; //public
+    int playerBusy[playersCount]; // public
+    int propositionsForPlayer[playersCount]; // public
+    int propositionsForTypes[typesCount]; // public
+    int freePlayersOfType[typesCount]; // public
+    int canPropose[playersCount]; // public
+    Room *rooms[roomsCount]; // public
+    int pendingGames; // public
+    int exitingPlayer; // public
+    int gamesOfExitingPlayer; // public
     int numberOfGames = 0; // private
 
     semaphore mutex = 1;
@@ -81,7 +82,8 @@ int main(int argc, char *argv[]) {
     /**************** Wejście do pokoju *******************/
     P(mutex);
     if (!playerBusy[playerNumber]) {
-        int proposition = findProposition(); // powinno ustawić pokój dla propozycji
+        int proposition = findAndExecuteProposition(); // powinno ustawić pokój dla propozycji i zmienić playerBusy,
+        // freePlayersOfType, room->neededPlayers, room->playersWaitingInside i pendingGames
         if (proposition == 0) {
             if (playersWithPropositions > 0 || propositionsForPlayer[playerNumber] > 0
                 || propositionsForTypes[playerType] > 0) {
@@ -99,14 +101,13 @@ int main(int argc, char *argv[]) {
                 endGame();
             }
         } else {
-            executeProposition(proposition); // powinno zmienić playerBusy, freePlayersOfType, room->neededPlayers i room->playersWaitingInside
             P(forGame[playerNumber]);
         }
     }
 
     while (1) {
         int roomNumber = getRoomNumber(playerNumber);
-        Room *room = getRoom(roomNumber);
+        Room *room = getRoomFromNumber(rooms, roomNumber);
         if (room->playersWaitingInside < room->neededPlayers - 1) {
             room->playersWaitingInside++;
             V(mutex);
@@ -122,9 +123,10 @@ int main(int argc, char *argv[]) {
         /*************** Wyjście z pokoju *****************/
         P(mutex);
         playerBusy[playerNumber] = 0;
-        if (lastOfTheRoom()) {
+        freePlayersOfType[playerType]++;
+        if (roomEmpty(roomNumber)) {
             canPropose[room->initiator] = 1;
-            freeRoom(roomNumber);
+            freeRoom(rooms, roomNumber, &pendingGames); // powinno zmieniać pendingGames
         }
         int i;
         for (i = 0; !playerBusy[playerNumber]; i++) {
@@ -132,7 +134,8 @@ int main(int argc, char *argv[]) {
                 addProposition();
                 canPropose[playerNumber] = 0;
             }
-            int proposition = findProposition(); // powinno ustawić pokój dla propozycji
+            int proposition = findAndExecuteProposition(); // powinno ustawić pokój dla propozycji i zmienić playerBusy,
+            // freePlayersOfType, room->neededPlayers, room->playersWaitingInside i pendingGames
             if (proposition == 0) {
                 if (playersWithPropositions > 0 || propositionsForPlayer[playerNumber] > 0
                     || propositionsForTypes[playerType] > 0) {
@@ -154,7 +157,6 @@ int main(int argc, char *argv[]) {
                     _exit(0);
                 }
             } else {
-                executeProposition(proposition); // powinno zmienić playerBusy, freePlayersOfType, room->neededPlayers i room->playersWaitingInside
                 P(forGame[playerNumber]);
             }
             V(mutex);
